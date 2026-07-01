@@ -101,7 +101,9 @@ POST /api/scan { image: base64, targetLang }
   → { items: [...] } 반환 (필드 스키마는 이전 Vision+Claude 2단계 버전과 100% 동일)
 ```
 
-에러는 `{ error: { code, message } }` 형태로 반환되며, 코드는 `INVALID_IMAGE` / `NO_TEXT_DETECTED` / `GEMINI_API_ERROR` / `GEMINI_PARSE_ERROR` / `TIMEOUT` / `SERVER_MISCONFIGURED` 중 하나입니다. Gemini 호출 1회에 타임아웃(8.5s)을 두어 Vercel Hobby 플랜의 함수 실행 제한(~10초) 안에서 실패를 명확히 반환합니다.
+에러는 `{ error: { code, message } }` 형태로 반환되며, 코드는 `INVALID_IMAGE` / `NO_TEXT_DETECTED` / `GEMINI_API_ERROR` / `GEMINI_PARSE_ERROR` / `TIMEOUT` / `SERVER_MISCONFIGURED` 중 하나입니다. Gemini 호출 1회에 타임아웃을 두어 Vercel Hobby 플랜의 함수 실행 제한(~10초) 안에서 실패를 명확히 반환합니다.
+
+> ⚠️ **배포 전 필수 확인:** 실제 Gemini 응답 시간을 재기 위해 현재 `api/scan.js`의 `GEMINI_TIMEOUT_MS`가 `25000`(25초), `vercel.json`의 `functions["api/scan.js"].maxDuration`이 `30`(초)으로 **임시 상향**되어 있습니다. Hobby 플랜은 함수 실행이 10초를 넘으면 강제 종료되므로, 실제 응답 시간 측정이 끝나면 두 값을 함수 실행 제한(~10초) 안에 맞게 다시 낮춰야 합니다(예: Gemini 타임아웃 8~9초 + `maxDuration` 10초).
 
 **이전 버전과의 차이:** 원래는 Google Vision(OCR) → Claude(번역) 2단계·키 2개 구조였으나, Gemini의 멀티모달 입력으로 이미지를 직접 읽게 하여 1단계·키 1개(`GEMINI_API_KEY`)로 단순화했습니다. 프론트 업로드/리사이즈/카드 렌더링과 응답 JSON 스키마는 전혀 바뀌지 않았습니다.
 
