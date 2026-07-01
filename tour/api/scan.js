@@ -96,6 +96,13 @@ module.exports = async function handler(req, res) {
     return sendError(res, 500, "SERVER_MISCONFIGURED", "Server is not configured correctly.");
   }
 
+  const decodedByteLength = Math.ceil((base64Data.length * 3) / 4);
+  console.log(
+    `[scan] request accepted: base64 length=${base64Data.length} chars (~${decodedByteLength} bytes decoded), ` +
+      `type=${imageType}, targetLang=${targetLang || "en"}`
+  );
+
+  const requestStartedAt = Date.now();
   let items;
   try {
     items = await withTimeout(
@@ -104,6 +111,9 @@ module.exports = async function handler(req, res) {
       "TIMEOUT"
     );
   } catch (err) {
+    console.error(
+      `[scan] Gemini call failed after ${Date.now() - requestStartedAt}ms: code=${err.code || "UNKNOWN"} message=${err.message}`
+    );
     const status = err.code === "TIMEOUT" ? 504 : 502;
     return sendError(res, status, err.code || "GEMINI_API_ERROR", "Could not read or translate the menu.");
   }

@@ -272,6 +272,12 @@
     clearScanResults();
     setScanLoading(true);
 
+    var decodedByteLength = Math.ceil((base64.length * 3) / 4);
+    console.log(
+      "[scan] sending image: base64 length=" + base64.length + " chars (~" + decodedByteLength + " bytes decoded), " +
+        "JSON body length=" + JSON.stringify({ image: base64, targetLang: state.lang }).length + " chars"
+    );
+
     fetch("/api/scan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
