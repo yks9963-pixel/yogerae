@@ -1,18 +1,58 @@
-// POST /api/scan — OCR (Google Vision) + translation (Claude) proxy.
-// Runs server-side only on Vercel. API keys are read from env vars here and
-// never echoed back in the response. The frontend must only ever call this
-// relative endpoint, never Vision/Claude directly.
+// POST /api/scan — Gemini multimodal proxy: reads the menu photo directly and
+// returns translated/structured menu items in one call. Runs server-side only
+// on Vercel. GEMINI_API_KEY is read from env vars here and never echoed back
+// in the response. The frontend must only ever call this relative endpoint,
+// never the Gemini API directly.
 const { KOREAN_MENU_TRANSLATOR_V1 } = require("./prompt");
 
 const MAX_BASE64_LENGTH = 4500000; // keeps the JSON body under Vercel's ~4.5MB function payload limit
-const VISION_TIMEOUT_MS = 4000;
-const CLAUDE_TIMEOUT_MS = 5000; // worst case ~9s total, under the Hobby plan's 10s function limit
-const DEFAULT_CLAUDE_MODEL = "claude-haiku-4-5-20251001";
+const GEMINI_TIMEOUT_MS = 8500; // single call, under the Hobby plan's 10s function limit
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 
 const TARGET_LANGUAGES = {
   en: "English",
   zh: "Chinese",
   ja: "Japanese"
+};
+
+const MIME_TYPES = {
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp"
+};
+
+// Mirrors prompt.js's OUTPUT FORMAT exactly, just expressed in Gemini's
+// responseSchema syntax — this does not change the JSON contract returned
+// to the frontend, it only makes Gemini's own output more reliably shaped.
+const MENU_ITEMS_RESPONSE_SCHEMA = {
+  type: "ARRAY",
+  items: {
+    type: "OBJECT",
+    properties: {
+      original_ko: { type: "STRING" },
+      romanization: { type: "STRING" },
+      translated_name: { type: "STRING" },
+      description: { type: "STRING" },
+      price_krw: { type: "INTEGER", nullable: true },
+      spice_level: { type: "INTEGER" },
+      main_ingredients: { type: "ARRAY", items: { type: "STRING" } },
+      allergens: { type: "ARRAY", items: { type: "STRING" } },
+      dietary: {
+        type: "OBJECT",
+        properties: {
+          vegetarian: { type: "BOOLEAN" },
+          vegan: { type: "BOOLEAN" },
+          halal_friendly: { type: "BOOLEAN" },
+          contains_pork: { type: "BOOLEAN" },
+          contains_beef: { type: "BOOLEAN" },
+          contains_alcohol: { type: "BOOLEAN" }
+        },
+        required: ["vegetarian", "vegan", "halal_friendly", "contains_pork", "contains_beef", "contains_alcohol"]
+      },
+      ocr_confidence: { type: "STRING" }
+    },
+    required: ["original_ko", "romanization", "translated_name", "description", "spice_level", "main_ingredients", "allergens", "dietary"]
+  }
 };
 
 module.exports = async function handler(req, res) {
@@ -44,40 +84,32 @@ module.exports = async function handler(req, res) {
     return sendError(res, 400, "INVALID_IMAGE", "Image is missing, too large, or not valid base64.");
   }
 
-  if (!detectImageType(base64Data)) {
+  const imageType = detectImageType(base64Data);
+  if (!imageType) {
     return sendError(res, 400, "INVALID_IMAGE", "Only JPEG, PNG, or WebP images are supported.");
   }
 
   const targetLanguageName = TARGET_LANGUAGES[targetLang] || TARGET_LANGUAGES.en;
 
-  const visionApiKey = process.env.GOOGLE_VISION_API_KEY;
-  const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
-  if (!visionApiKey || !anthropicApiKey) {
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (!geminiApiKey) {
     return sendError(res, 500, "SERVER_MISCONFIGURED", "Server is not configured correctly.");
-  }
-
-  let menuText;
-  try {
-    menuText = await withTimeout(runVisionOcr(base64Data, visionApiKey), VISION_TIMEOUT_MS, "VISION_API_ERROR");
-  } catch (err) {
-    const status = err.code === "TIMEOUT" ? 504 : 502;
-    return sendError(res, status, err.code || "VISION_API_ERROR", "Could not read text from the image.");
-  }
-
-  if (!menuText || !menuText.trim()) {
-    return sendError(res, 422, "NO_TEXT_DETECTED", "No menu text was found in the image.");
   }
 
   let items;
   try {
     items = await withTimeout(
-      runClaudeTranslation(menuText, targetLanguageName, anthropicApiKey),
-      CLAUDE_TIMEOUT_MS,
-      "TRANSLATION_API_ERROR"
+      runGeminiMenuRead(base64Data, MIME_TYPES[imageType], targetLanguageName, geminiApiKey),
+      GEMINI_TIMEOUT_MS,
+      "TIMEOUT"
     );
   } catch (err) {
     const status = err.code === "TIMEOUT" ? 504 : 502;
-    return sendError(res, status, err.code || "TRANSLATION_API_ERROR", "Could not translate the menu.");
+    return sendError(res, status, err.code || "GEMINI_API_ERROR", "Could not read or translate the menu.");
+  }
+
+  if (items.length === 0) {
+    return sendError(res, 422, "NO_TEXT_DETECTED", "No menu items were found in the image.");
   }
 
   return res.status(200).json({ items });
@@ -104,7 +136,7 @@ async function withTimeout(promise, ms, timeoutCode) {
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
-      reject(Object.assign(new Error("Timed out"), { code: "TIMEOUT" }));
+      reject(Object.assign(new Error("Timed out"), { code: timeoutCode }));
     }, ms);
   });
   try {
@@ -114,72 +146,55 @@ async function withTimeout(promise, ms, timeoutCode) {
   }
 }
 
-async function runVisionOcr(base64Image, apiKey) {
-  const url = `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(apiKey)}`;
+async function runGeminiMenuRead(base64Image, mimeType, targetLanguageName, apiKey) {
+  const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      requests: [
-        {
-          image: { content: base64Image },
-          features: [{ type: "DOCUMENT_TEXT_DETECTION" }]
-        }
-      ]
-    })
-  });
-
-  if (!response.ok) {
-    throw Object.assign(new Error("Vision API error"), { code: "VISION_API_ERROR" });
-  }
-
-  const data = await response.json();
-  const annotation = data && data.responses && data.responses[0];
-  if (annotation && annotation.error) {
-    throw Object.assign(new Error(annotation.error.message || "Vision API error"), { code: "VISION_API_ERROR" });
-  }
-  return (annotation && annotation.fullTextAnnotation && annotation.fullTextAnnotation.text) || "";
-}
-
-async function runClaudeTranslation(menuText, targetLanguageName, apiKey) {
-  const model = process.env.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL;
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01"
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 2048,
-      system: KOREAN_MENU_TRANSLATOR_V1,
-      messages: [
+      systemInstruction: {
+        parts: [{ text: KOREAN_MENU_TRANSLATOR_V1 }]
+      },
+      contents: [
         {
           role: "user",
-          content: `target_language: ${targetLanguageName}\n\nmenu_text:\n${menuText}`
+          parts: [
+            { text: `target_language: ${targetLanguageName}` },
+            { inline_data: { mime_type: mimeType, data: base64Image } }
+          ]
         }
-      ]
+      ],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: MENU_ITEMS_RESPONSE_SCHEMA
+      }
     })
   });
 
   if (!response.ok) {
-    throw Object.assign(new Error("Claude API error"), { code: "TRANSLATION_API_ERROR" });
+    throw Object.assign(new Error("Gemini API error"), { code: "GEMINI_API_ERROR" });
   }
 
   const data = await response.json();
-  const textBlock = Array.isArray(data.content) ? data.content.find((block) => block.type === "text") : null;
-  const rawText = textBlock ? textBlock.text : "";
+  const candidate = data && Array.isArray(data.candidates) ? data.candidates[0] : null;
+  const part = candidate && candidate.content && Array.isArray(candidate.content.parts) ? candidate.content.parts[0] : null;
+  const rawText = part && typeof part.text === "string" ? part.text : "";
+
+  if (!rawText) {
+    throw Object.assign(new Error("Gemini returned no content"), { code: "GEMINI_API_ERROR" });
+  }
 
   let items;
   try {
     items = JSON.parse(extractJsonArray(rawText));
   } catch (e) {
-    throw Object.assign(new Error("Could not parse translation response"), { code: "TRANSLATION_PARSE_ERROR" });
+    throw Object.assign(new Error("Could not parse Gemini response"), { code: "GEMINI_PARSE_ERROR" });
   }
 
   if (!Array.isArray(items)) {
-    throw Object.assign(new Error("Translation response was not an array"), { code: "TRANSLATION_PARSE_ERROR" });
+    throw Object.assign(new Error("Gemini response was not an array"), { code: "GEMINI_PARSE_ERROR" });
   }
 
   return items;

@@ -4,8 +4,8 @@
 // NOT secrecy, it's an HTTP referrer (domain) restriction you must set on
 // this key in the Google Cloud Console. See /tour/README.md.
 //
-// This is a different key from ANTHROPIC_API_KEY / GOOGLE_VISION_API_KEY in
-// /tour/.env, which are server-only and must never appear in frontend code.
+// This is a different key from GEMINI_API_KEY in /tour/.env, which is
+// server-only and must never appear in frontend code.
 window.TOUR_CONFIG = {
   GOOGLE_MAPS_API_KEY: ""
 };

@@ -193,9 +193,8 @@
   var SCAN_ERROR_KEYS = {
     INVALID_IMAGE: "scanErrorInvalidImage",
     NO_TEXT_DETECTED: "scanErrorNoText",
-    VISION_API_ERROR: "scanErrorApiFailure",
-    TRANSLATION_API_ERROR: "scanErrorApiFailure",
-    TRANSLATION_PARSE_ERROR: "scanErrorApiFailure",
+    GEMINI_API_ERROR: "scanErrorApiFailure",
+    GEMINI_PARSE_ERROR: "scanErrorApiFailure",
     SERVER_MISCONFIGURED: "scanErrorApiFailure",
     TIMEOUT: "scanErrorTimeout"
   };

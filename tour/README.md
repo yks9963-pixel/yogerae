@@ -8,11 +8,11 @@
 /tour
 ├── index.html          # 진입점 (랜딩 / scan / find 뷰를 한 페이지에서 라우팅)
 ├── README.md
-├── .env.example         # ANTHROPIC_API_KEY / GOOGLE_VISION_API_KEY / CLAUDE_MODEL
+├── .env.example         # GEMINI_API_KEY / GEMINI_MODEL
 ├── .gitignore           # .env, .vercel 등 제외
 ├── vercel.json          # api/scan.js 함수 설정(maxDuration)
 ├── api/
-│   ├── scan.js          # POST /api/scan — Vision OCR + Claude 번역 프록시 (서버 전용)
+│   ├── scan.js          # POST /api/scan — Gemini 멀티모달(이미지→읽기+번역+JSON) 프록시 (서버 전용)
 │   └── prompt.js        # Korean Menu Translator v1 시스템 프롬프트
 └── assets/
     ├── css/
@@ -61,12 +61,17 @@ cp assets/js/config.example.js assets/js/config.js
 
 | 변수 | 위치 | 필수 | 설명 |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | `.env` (서버 전용) | 예 | Claude 메뉴 번역 호출용. `/tour/api/scan.js`에서만 서버사이드로 읽음 |
-| `GOOGLE_VISION_API_KEY` | `.env` (서버 전용) | 예 | Google Vision OCR(`DOCUMENT_TEXT_DETECTION`) 호출용 |
-| `CLAUDE_MODEL` | `.env` (서버 전용) | 아니오 | 기본값 `claude-haiku-4-5-20251001`. 다른 모델로 override 가능 |
-| `GOOGLE_MAPS_API_KEY` | `assets/js/config.js` (**프론트 전용**) | Find 지도 사용 시 | Maps JavaScript API 키. 브라우저 요청에 노출되는 것이 정상이며, 위 서버 전용 키들과는 성격이 다름 |
+| `GEMINI_API_KEY` | `.env` (서버 전용) | 예 | 메뉴 사진을 읽고 번역하는 Gemini 멀티모달 호출용. `/tour/api/scan.js`에서만 서버사이드로 읽음 |
+| `GEMINI_MODEL` | `.env` (서버 전용) | 아니오 | 기본값 `gemini-2.5-flash`. 이미지 입력을 지원하는 멀티모달 모델이어야 함 |
+| `GOOGLE_MAPS_API_KEY` | `assets/js/config.js` (**프론트 전용**) | Find 지도 사용 시 | Maps JavaScript API 키. 브라우저 요청에 노출되는 것이 정상이며, 위 서버 전용 키와는 성격이 다름 |
 
-> ⚠️ `GOOGLE_MAPS_API_KEY`(프론트, `config.js`)와 `GOOGLE_VISION_API_KEY`(서버, `.env`)는 **서로 다른 키**입니다. 둘 다 Google Cloud 콘솔에서 발급하지만 절대 같은 값을 재사용하지 마세요 — 프론트 키는 도메인 제한을 걸어도 요청 URL에 그대로 노출되고, 서버 키는 절대 노출되면 안 됩니다.
+> ⚠️ `GOOGLE_MAPS_API_KEY`(프론트, `config.js`)와 `GEMINI_API_KEY`(서버, `.env`)는 **서로 다른 키·서로 다른 발급처**입니다. 지도 키는 Google Cloud 콘솔, Gemini 키는 Google AI Studio에서 발급하며 절대 같은 값을 재사용하지 마세요 — 프론트 키는 도메인 제한을 걸어도 요청 URL에 그대로 노출되고, 서버 키는 절대 노출되면 안 됩니다.
+
+### Gemini 키 발급 (필수)
+
+1. [Google AI Studio](https://aistudio.google.com/apikey)에서 API 키 발급
+2. 발급받은 키를 로컬 `.env`의 `GEMINI_API_KEY`에, 배포 환경은 Vercel 프로젝트의 환경변수 설정에 등록
+3. 무료 티어 기준 `gemini-2.5-flash`(멀티모달) 사용을 기본값으로 함 — 다른 모델로 바꾸려면 `GEMINI_MODEL`을 override
 
 ### 구글맵 키 발급 및 도메인 제한 (필수)
 
@@ -90,14 +95,17 @@ cp assets/js/config.example.js assets/js/config.js
 ```
 POST /api/scan { image: base64, targetLang }
   → 입력 검증 (base64 형식·크기·JPEG/PNG/WebP 매직바이트)
-  → Google Vision DOCUMENT_TEXT_DETECTION으로 OCR
-  → OCR 텍스트 + targetLang을 Claude(Korean Menu Translator v1 시스템 프롬프트)에 전달
-  → 응답을 JSON 배열로 파싱 후 { items: [...] } 반환
+  → 이미지 + targetLang을 Gemini(Korean Menu Translator v1 시스템 프롬프트, responseSchema로 JSON 구조 강제)에 1회 전달
+    — 이미지에서 직접 메뉴를 읽고, 번역하고, 구조화까지 한 번에 처리 (별도 OCR 단계 없음)
+  → 응답을 JSON 배열로 파싱, 빈 배열이면 "메뉴를 못 찾음"으로 처리
+  → { items: [...] } 반환 (필드 스키마는 이전 Vision+Claude 2단계 버전과 100% 동일)
 ```
 
-에러는 `{ error: { code, message } }` 형태로 반환되며, 코드는 `INVALID_IMAGE` / `NO_TEXT_DETECTED` / `VISION_API_ERROR` / `TRANSLATION_API_ERROR` / `TRANSLATION_PARSE_ERROR` / `TIMEOUT` / `SERVER_MISCONFIGURED` 중 하나입니다. Vision·Claude 호출 각각에 타임아웃(4s/5s)을 두어 Vercel Hobby 플랜의 함수 실행 제한(~10초) 안에서 실패를 명확히 반환합니다.
+에러는 `{ error: { code, message } }` 형태로 반환되며, 코드는 `INVALID_IMAGE` / `NO_TEXT_DETECTED` / `GEMINI_API_ERROR` / `GEMINI_PARSE_ERROR` / `TIMEOUT` / `SERVER_MISCONFIGURED` 중 하나입니다. Gemini 호출 1회에 타임아웃(8.5s)을 두어 Vercel Hobby 플랜의 함수 실행 제한(~10초) 안에서 실패를 명확히 반환합니다.
 
-**STEP 2에서 일부러 미룬 것:** 요청 빈도 제한(rate limit), Origin 검증 등 공개 배포 단계의 남용 방어는 이번 범위에 포함하지 않았습니다 (서버리스 특성상 영구 저장소 없이는 견고하게 구현하기 어려워 실제 배포 준비 단계로 이연). 지금은 이미지 타입/크기 기본 검증만 있습니다.
+**이전 버전과의 차이:** 원래는 Google Vision(OCR) → Claude(번역) 2단계·키 2개 구조였으나, Gemini의 멀티모달 입력으로 이미지를 직접 읽게 하여 1단계·키 1개(`GEMINI_API_KEY`)로 단순화했습니다. 프론트 업로드/리사이즈/카드 렌더링과 응답 JSON 스키마는 전혀 바뀌지 않았습니다.
+
+**여전히 일부러 미룬 것:** 요청 빈도 제한(rate limit), Origin 검증 등 공개 배포 단계의 남용 방어는 이번 범위에 포함하지 않았습니다 (서버리스 특성상 영구 저장소 없이는 견고하게 구현하기 어려워 실제 배포 준비 단계로 이연). 지금은 이미지 타입/크기 기본 검증만 있습니다.
 
 ## Find 데이터 구조 (`assets/js/data/restaurants.js`)
 
@@ -125,7 +133,7 @@ window.TOUR_RESTAURANTS = [
 
 ## 보안 메모
 
-- `ANTHROPIC_API_KEY`/`GOOGLE_VISION_API_KEY`는 서버(`/tour/api/scan.js`)에서만 `process.env`로 읽으며, 코드·응답·프론트 어디에도 노출되지 않습니다.
-- 프론트는 `/api/scan`만 호출하며 Vision/Claude API를 직접 호출하지 않습니다.
+- `GEMINI_API_KEY`는 서버(`/tour/api/scan.js`)에서만 `process.env`로 읽으며, 코드·응답·프론트 어디에도 노출되지 않습니다.
+- 프론트는 `/api/scan`만 호출하며 Gemini API를 직접 호출하지 않습니다.
 - `.env`는 `.gitignore`에 포함되어 있으며, 커밋되는 것은 `.env.example` 뿐입니다.
 - `GOOGLE_MAPS_API_KEY`(`assets/js/config.js`)는 브라우저에 노출되는 것이 정상인 프론트 전용 키입니다 — 위 두 서버 키와 절대 혼용하지 말고, Google Cloud 콘솔에서 **HTTP referrer(도메인) 제한**을 반드시 설정하세요(발급 방법은 위 "구글맵 키 발급 및 도메인 제한" 참고). `config.js`도 `.gitignore`에 포함되어 있으며, 커밋되는 것은 `config.example.js` 뿐입니다.
