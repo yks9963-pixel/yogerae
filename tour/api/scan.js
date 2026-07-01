@@ -6,7 +6,7 @@
 const { KOREAN_MENU_TRANSLATOR_V1 } = require("./prompt");
 
 const MAX_BASE64_LENGTH = 4500000; // keeps the JSON body under Vercel's ~4.5MB function payload limit
-const GEMINI_TIMEOUT_MS = 8500; // single call, under the Hobby plan's 10s function limit
+const GEMINI_TIMEOUT_MS = 25000; // temporarily raised for local timing tests — see README before deploying
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 
 const TARGET_LANGUAGES = {
@@ -150,6 +150,7 @@ async function runGeminiMenuRead(base64Image, mimeType, targetLanguageName, apiK
   const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
+  const startedAt = Date.now();
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -172,6 +173,7 @@ async function runGeminiMenuRead(base64Image, mimeType, targetLanguageName, apiK
       }
     })
   });
+  console.log(`[scan] Gemini fetch took ${Date.now() - startedAt}ms (model=${model}, http ${response.status})`);
 
   if (!response.ok) {
     throw Object.assign(new Error("Gemini API error"), { code: "GEMINI_API_ERROR" });
@@ -197,6 +199,7 @@ async function runGeminiMenuRead(base64Image, mimeType, targetLanguageName, apiK
     throw Object.assign(new Error("Gemini response was not an array"), { code: "GEMINI_PARSE_ERROR" });
   }
 
+  console.log(`[scan] Gemini end-to-end (fetch+parse) took ${Date.now() - startedAt}ms, ${items.length} item(s)`);
   return items;
 }
 
