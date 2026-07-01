@@ -25,7 +25,13 @@
       scanErrorTimeout: "This is taking too long. Please try again.",
       scanErrorInvalidImage: "Please choose a JPEG/PNG/WebP photo under 10MB.",
       retryButton: "Try Again",
-      scanDisclaimer: "Menu details are AI-generated — please confirm ingredients and allergies with staff."
+      scanDisclaimer: "Menu details are AI-generated — please confirm ingredients and allergies with staff.",
+      findFilterNotSpicy: "Not spicy",
+      findFilterVegetarian: "Vegetarian",
+      findFilterHalal: "Halal-friendly",
+      findLocationDenied: "Location access was denied — showing distances relative to central Jeonju.",
+      findMapUnavailable: "Map unavailable — missing API key.",
+      findNoResults: "No restaurants match these filters."
     },
     zh: {
       langBadge: "中",
@@ -47,7 +53,13 @@
       scanErrorTimeout: "处理时间过长，请重试。",
       scanErrorInvalidImage: "请选择小于10MB的JPEG/PNG/WebP照片。",
       retryButton: "重试",
-      scanDisclaimer: "菜单信息由AI生成——请与店员确认食材与过敏信息。"
+      scanDisclaimer: "菜单信息由AI生成——请与店员确认食材与过敏信息。",
+      findFilterNotSpicy: "不辣",
+      findFilterVegetarian: "素食",
+      findFilterHalal: "清真友好",
+      findLocationDenied: "位置访问被拒绝——将以全州市中心为基准显示距离。",
+      findMapUnavailable: "地图不可用（缺少API密钥）。",
+      findNoResults: "没有符合筛选条件的餐厅。"
     },
     ja: {
       langBadge: "日",
@@ -69,7 +81,13 @@
       scanErrorTimeout: "処理に時間がかかっています。もう一度お試しください。",
       scanErrorInvalidImage: "10MB未満のJPEG/PNG/WebP写真を選んでください。",
       retryButton: "再試行",
-      scanDisclaimer: "メニュー情報はAIが生成しています——アレルギーや食材については店員にご確認ください。"
+      scanDisclaimer: "メニュー情報はAIが生成しています——アレルギーや食材については店員にご確認ください。",
+      findFilterNotSpicy: "辛くない",
+      findFilterVegetarian: "ベジタリアン",
+      findFilterHalal: "ハラール対応",
+      findLocationDenied: "位置情報へのアクセスが拒否されました——全州市中心を基準に距離を表示します。",
+      findMapUnavailable: "地図を利用できません（APIキーが未設定です）。",
+      findNoResults: "この条件に一致するお店はありません。"
     }
   };
 
@@ -83,6 +101,16 @@
     view: "landing",
     scan: {
       lastBase64: null
+    },
+    find: {
+      initialized: false,
+      userLocation: null,
+      activeFilters: [],
+      subview: "list",
+      selectedRestaurantId: null,
+      map: null,
+      userMarker: null,
+      markers: {}
     }
   };
 
@@ -108,6 +136,9 @@
     }
     applyTranslations();
     updateLangUI();
+    if (state.find.initialized) {
+      renderRestaurantList();
+    }
   }
 
   function t(key) {
@@ -148,6 +179,10 @@
     if (backBtn) backBtn.hidden = viewName === "landing";
 
     state.view = viewName;
+
+    if (viewName === "find") {
+      initFindView();
+    }
   }
 
   // ---- Scan flow (STEP 2) --------------------------------------------------
@@ -408,6 +443,333 @@
     return tags;
   }
 
+  // ---- Find flow (STEP 3) ---------------------------------------------------
+  var DEFAULT_CENTER = { lat: 35.8242, lng: 127.148 }; // Jeonju City Hall — fallback when geolocation is denied/unavailable
+  var GOOGLE_MAPS_CALLBACK_NAME = "__tourGoogleMapsReady";
+
+  function initFindView() {
+    if (state.find.initialized) return;
+    state.find.initialized = true;
+
+    renderRestaurantList();
+    loadGoogleMaps();
+
+    requestUserLocation().then(function (location) {
+      state.find.userLocation = location;
+
+      var notice = document.getElementById("findLocationNotice");
+      if (notice) notice.hidden = !!location;
+
+      renderRestaurantList();
+
+      if (state.find.map) {
+        state.find.map.setCenter(location || DEFAULT_CENTER);
+        addUserMarker();
+      }
+    });
+  }
+
+  function requestUserLocation() {
+    return new Promise(function (resolve) {
+      if (!("geolocation" in navigator)) {
+        resolve(null);
+        return;
+      }
+
+      var settled = false;
+      var settle = function (result) {
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      };
+
+      // Belt-and-suspenders timeout: some browsers leave getCurrentPosition
+      // pending indefinitely while a permission prompt is unanswered, rather
+      // than honoring the PositionOptions.timeout below. This guarantees the
+      // fallback still kicks in instead of leaving distances/notice stuck.
+      setTimeout(function () {
+        settle(null);
+      }, 8000);
+
+      navigator.geolocation.getCurrentPosition(
+        function (position) {
+          settle({ lat: position.coords.latitude, lng: position.coords.longitude });
+        },
+        function () {
+          settle(null);
+        },
+        { timeout: 8000 }
+      );
+    });
+  }
+
+  function haversineDistanceKm(lat1, lng1, lat2, lng2) {
+    var earthRadiusKm = 6371;
+    var dLat = toRadians(lat2 - lat1);
+    var dLng = toRadians(lng2 - lng1);
+    var a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return earthRadiusKm * c;
+  }
+
+  function toRadians(degrees) {
+    return (degrees * Math.PI) / 180;
+  }
+
+  function formatDistanceForRestaurant(restaurant) {
+    var loc = state.find.userLocation;
+    if (!loc) return "—";
+    var km = haversineDistanceKm(loc.lat, loc.lng, restaurant.lat, restaurant.lng);
+    return km < 1 ? Math.round(km * 1000) + "m" : km.toFixed(1) + "km";
+  }
+
+  function getAllRestaurants() {
+    return Array.isArray(window.TOUR_RESTAURANTS) ? window.TOUR_RESTAURANTS : [];
+  }
+
+  function getFilteredRestaurants() {
+    var all = getAllRestaurants();
+    if (state.find.activeFilters.length === 0) return all;
+    return all.filter(function (restaurant) {
+      return state.find.activeFilters.every(function (filterKey) {
+        return restaurant.tags.indexOf(filterKey) !== -1;
+      });
+    });
+  }
+
+  function toggleFilter(filterKey) {
+    var index = state.find.activeFilters.indexOf(filterKey);
+    if (index === -1) {
+      state.find.activeFilters.push(filterKey);
+    } else {
+      state.find.activeFilters.splice(index, 1);
+    }
+
+    document.querySelectorAll(".filter-chip").forEach(function (chip) {
+      var isActive = state.find.activeFilters.indexOf(chip.getAttribute("data-filter")) !== -1;
+      chip.classList.toggle("is-active", isActive);
+    });
+
+    renderRestaurantList();
+    updateMarkerVisibility();
+  }
+
+  function renderRestaurantList() {
+    var list = document.getElementById("findRestaurantList");
+    if (!list) return;
+    list.textContent = "";
+
+    var restaurants = getFilteredRestaurants();
+
+    if (restaurants.length === 0) {
+      var empty = document.createElement("p");
+      empty.className = "find-empty-state";
+      empty.textContent = t("findNoResults");
+      list.appendChild(empty);
+      return;
+    }
+
+    restaurants.forEach(function (restaurant) {
+      list.appendChild(buildRestaurantCard(restaurant));
+    });
+  }
+
+  function buildRestaurantCard(restaurant) {
+    var card = document.createElement("article");
+    card.className = "restaurant-card";
+    card.dataset.restaurantId = restaurant.id;
+
+    var head = document.createElement("div");
+    head.className = "restaurant-card-head";
+
+    var emoji = document.createElement("span");
+    emoji.className = "restaurant-card-emoji";
+    emoji.setAttribute("aria-hidden", "true");
+    emoji.textContent = "🍴";
+    head.appendChild(emoji);
+
+    var titleWrap = document.createElement("div");
+    var name = document.createElement("h3");
+    name.className = "restaurant-card-name";
+    name.textContent = restaurant.name;
+    var category = document.createElement("p");
+    category.className = "restaurant-card-category";
+    category.textContent = restaurant.category;
+    titleWrap.appendChild(name);
+    titleWrap.appendChild(category);
+    head.appendChild(titleWrap);
+    card.appendChild(head);
+
+    var meta = document.createElement("div");
+    meta.className = "restaurant-card-meta";
+
+    var distance = document.createElement("span");
+    distance.textContent = formatDistanceForRestaurant(restaurant);
+    meta.appendChild(distance);
+
+    var rating = document.createElement("span");
+    rating.textContent = "★" + restaurant.rating.toFixed(1);
+    meta.appendChild(rating);
+
+    card.appendChild(meta);
+
+    var dish = document.createElement("p");
+    dish.className = "restaurant-card-dish";
+    dish.textContent = restaurant.signature_dish;
+    card.appendChild(dish);
+
+    card.addEventListener("click", function () {
+      showRestaurantDetail(restaurant.id);
+    });
+
+    return card;
+  }
+
+  function highlightRestaurantCard(id) {
+    var card = document.querySelector('.restaurant-card[data-restaurant-id="' + id + '"]');
+    if (!card) return;
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+    card.classList.add("is-highlighted");
+    setTimeout(function () {
+      card.classList.remove("is-highlighted");
+    }, 1600);
+  }
+
+  function showRestaurantDetail(id) {
+    var restaurant = getAllRestaurants().find(function (r) {
+      return r.id === id;
+    });
+    if (!restaurant) return;
+
+    state.find.selectedRestaurantId = id;
+
+    var header = document.getElementById("findDetailHeader");
+    if (header) {
+      header.textContent = "";
+      var name = document.createElement("h2");
+      name.textContent = restaurant.name;
+      var meta = document.createElement("p");
+      meta.textContent = restaurant.category + " · ★" + restaurant.rating.toFixed(1);
+      header.appendChild(name);
+      header.appendChild(meta);
+    }
+
+    var menuWrap = document.getElementById("findDetailMenu");
+    if (menuWrap) {
+      menuWrap.textContent = "";
+      restaurant.menu.forEach(function (item) {
+        menuWrap.appendChild(buildMenuCard(item));
+      });
+      if (restaurant.menu.length > 0) {
+        var disclaimer = document.createElement("div");
+        disclaimer.className = "scan-disclaimer";
+        disclaimer.textContent = "⚠️ " + t("scanDisclaimer");
+        menuWrap.appendChild(disclaimer);
+      }
+    }
+
+    showFindSubview("detail");
+  }
+
+  function showFindSubview(subview) {
+    state.find.subview = subview;
+    var listSubview = document.getElementById("findListSubview");
+    var detailSubview = document.getElementById("findDetailSubview");
+    if (listSubview) listSubview.hidden = subview !== "list";
+    if (detailSubview) detailSubview.hidden = subview !== "detail";
+  }
+
+  function loadGoogleMaps() {
+    var apiKey = window.TOUR_CONFIG && window.TOUR_CONFIG.GOOGLE_MAPS_API_KEY;
+    var unavailableNotice = document.getElementById("findMapUnavailable");
+
+    if (!apiKey) {
+      if (unavailableNotice) unavailableNotice.hidden = false;
+      return;
+    }
+
+    if (window.google && window.google.maps) {
+      onGoogleMapsReady();
+      return;
+    }
+
+    window[GOOGLE_MAPS_CALLBACK_NAME] = onGoogleMapsReady;
+
+    var script = document.createElement("script");
+    script.src =
+      "https://maps.googleapis.com/maps/api/js?key=" +
+      encodeURIComponent(apiKey) +
+      "&loading=async&callback=" +
+      GOOGLE_MAPS_CALLBACK_NAME;
+    script.onerror = function () {
+      if (unavailableNotice) unavailableNotice.hidden = false;
+    };
+    document.head.appendChild(script);
+  }
+
+  function onGoogleMapsReady() {
+    var mapEl = document.getElementById("findMap");
+    if (!mapEl) return;
+
+    state.find.map = new google.maps.Map(mapEl, {
+      center: state.find.userLocation || DEFAULT_CENTER,
+      zoom: 15,
+      disableDefaultUI: true,
+      zoomControl: true
+    });
+
+    addUserMarker();
+
+    state.find.markers = {};
+    getAllRestaurants().forEach(function (restaurant) {
+      var marker = new google.maps.Marker({
+        position: { lat: restaurant.lat, lng: restaurant.lng },
+        map: state.find.map,
+        title: restaurant.name
+      });
+      marker.addListener("click", function () {
+        highlightRestaurantCard(restaurant.id);
+      });
+      state.find.markers[restaurant.id] = marker;
+    });
+
+    updateMarkerVisibility();
+  }
+
+  function addUserMarker() {
+    if (!state.find.userLocation || !state.find.map) return;
+
+    if (state.find.userMarker) {
+      state.find.userMarker.setPosition(state.find.userLocation);
+      return;
+    }
+
+    state.find.userMarker = new google.maps.Marker({
+      position: state.find.userLocation,
+      map: state.find.map,
+      title: "You",
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 8,
+        fillColor: "#2563eb",
+        fillOpacity: 1,
+        strokeColor: "#ffffff",
+        strokeWeight: 2
+      }
+    });
+  }
+
+  function updateMarkerVisibility() {
+    var visibleIds = getFilteredRestaurants().map(function (r) {
+      return r.id;
+    });
+    Object.keys(state.find.markers).forEach(function (id) {
+      state.find.markers[id].setMap(visibleIds.indexOf(id) !== -1 ? state.find.map : null);
+    });
+  }
+
   // ---- Event wiring -------------------------------------------------------
   function init() {
     document.querySelectorAll(".lang-chip").forEach(function (chip) {
@@ -425,9 +787,19 @@
     var backBtn = document.getElementById("backBtn");
     if (backBtn) {
       backBtn.addEventListener("click", function () {
+        if (state.view === "find" && state.find.subview === "detail") {
+          showFindSubview("list");
+          return;
+        }
         navigate("landing");
       });
     }
+
+    document.querySelectorAll(".filter-chip").forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        toggleFilter(chip.getAttribute("data-filter"));
+      });
+    });
 
     var scanFileInput = document.getElementById("scanFileInput");
     if (scanFileInput) {

@@ -72,12 +72,32 @@
     </div>
   </section>
 
-  <!-- Find view (placeholder, STEP 3) -->
+  <!-- Find view (STEP 3) -->
   <section id="view-find" class="view" data-view="find" hidden>
-    <div class="placeholder">
-      <div class="placeholder-icon" aria-hidden="true">📍</div>
-      <h2 data-i18n="findFood">Find Food Near Me</h2>
-      <p data-i18n="findPlaceholder">Map &amp; nearby restaurants coming in STEP 3.</p>
+    <div id="findMapWrap" class="find-map-wrap">
+      <div id="findMap" class="find-map"></div>
+      <p id="findMapUnavailable" class="find-map-unavailable" data-i18n="findMapUnavailable" hidden>
+        Map unavailable — missing API key.
+      </p>
+    </div>
+
+    <p id="findLocationNotice" class="find-location-notice" data-i18n="findLocationDenied" hidden>
+      Location access was denied — showing distances relative to central Jeonju.
+    </p>
+
+    <div id="findListSubview" class="find-subview">
+      <div class="filter-chips" role="group" aria-label="Filters">
+        <button class="filter-chip" data-filter="not_spicy" type="button" data-i18n="findFilterNotSpicy">Not spicy</button>
+        <button class="filter-chip" data-filter="vegetarian" type="button" data-i18n="findFilterVegetarian">Vegetarian</button>
+        <button class="filter-chip" data-filter="halal_friendly" type="button" data-i18n="findFilterHalal">Halal-friendly</button>
+      </div>
+
+      <div id="findRestaurantList" class="find-restaurant-list"></div>
+    </div>
+
+    <div id="findDetailSubview" class="find-subview" hidden>
+      <div id="findDetailHeader" class="find-detail-header"></div>
+      <div id="findDetailMenu" class="scan-results"></div>
     </div>
   </section>
 
@@ -98,6 +118,8 @@
   </button>
 </nav>
 
+<script src="assets/js/config.js"></script>
+<script src="assets/js/data/restaurants.js"></script>
 <script src="assets/js/app.js"></script>
 </body>
 </html>
