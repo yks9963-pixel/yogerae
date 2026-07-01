@@ -42,12 +42,33 @@
     </div>
   </section>
 
-  <!-- Scan view (placeholder, STEP 2) -->
+  <!-- Scan view (STEP 2) -->
   <section id="view-scan" class="view" data-view="scan" hidden>
-    <div class="placeholder">
-      <div class="placeholder-icon" aria-hidden="true">📷</div>
+    <div class="scan-panel">
       <h2 data-i18n="scanMenu">Scan Menu</h2>
-      <p data-i18n="scanPlaceholder">Camera / upload flow coming in STEP 2.</p>
+      <p class="scan-hint" data-i18n="scanUploadHint">Take a photo or choose a photo of a Korean menu.</p>
+
+      <label class="scan-upload-btn btn btn-filled" for="scanFileInput">
+        <span class="btn-icon" aria-hidden="true">📷</span>
+        <span data-i18n="scanChooseImage">Choose Photo</span>
+      </label>
+      <input id="scanFileInput" type="file" accept="image/*" capture="environment" hidden>
+
+      <div id="scanPreviewWrap" class="scan-preview-wrap" hidden>
+        <img id="scanPreviewImg" class="scan-preview-img" alt="">
+      </div>
+
+      <div id="scanSpinner" class="scan-spinner" hidden>
+        <div class="spinner" aria-hidden="true"></div>
+        <p data-i18n="scanLoading">Reading your menu...</p>
+      </div>
+
+      <div id="scanError" class="scan-error" hidden>
+        <p id="scanErrorMessage"></p>
+        <button id="scanRetryBtn" class="btn btn-outline" type="button" data-i18n="retryButton">Try Again</button>
+      </div>
+
+      <div id="scanResults" class="scan-results"></div>
     </div>
   </section>
 
