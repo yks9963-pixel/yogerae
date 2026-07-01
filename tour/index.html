@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>YOGERAE Tour</title>
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <button id="backBtn" class="topbar-back" aria-label="Back" hidden>&larr;</button>
+  <span class="topbar-title" data-i18n="appName">YOGERAE Tour</span>
+  <span id="langBadge" class="topbar-lang">EN</span>
+</header>
+
+<main id="app">
+
+  <!-- Landing view -->
+  <section id="view-landing" class="view" data-view="landing">
+    <div class="landing-hero">
+      <div class="logo" aria-hidden="true">🍜</div>
+      <h1 data-i18n="title">YOGERAE Tour</h1>
+      <p class="subtitle" data-i18n="subtitle">Menu translation &amp; food finder for travelers</p>
+    </div>
+
+    <div class="lang-picker" role="group" aria-label="Language">
+      <button class="lang-chip is-active" data-lang="en" type="button">EN</button>
+      <button class="lang-chip" data-lang="zh" type="button">中</button>
+      <button class="lang-chip" data-lang="ja" type="button">日</button>
+    </div>
+
+    <div class="entry-buttons">
+      <button id="btnScan" class="btn btn-filled" type="button" data-nav="scan">
+        <span class="btn-icon" aria-hidden="true">📷</span>
+        <span data-i18n="scanMenu">Scan Menu</span>
+      </button>
+      <button id="btnFind" class="btn btn-outline" type="button" data-nav="find">
+        <span class="btn-icon" aria-hidden="true">📍</span>
+        <span data-i18n="findFood">Find Food Near Me</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- Scan view (placeholder, STEP 2) -->
+  <section id="view-scan" class="view" data-view="scan" hidden>
+    <div class="placeholder">
+      <div class="placeholder-icon" aria-hidden="true">📷</div>
+      <h2 data-i18n="scanMenu">Scan Menu</h2>
+      <p data-i18n="scanPlaceholder">Camera / upload flow coming in STEP 2.</p>
+    </div>
+  </section>
+
+  <!-- Find view (placeholder, STEP 3) -->
+  <section id="view-find" class="view" data-view="find" hidden>
+    <div class="placeholder">
+      <div class="placeholder-icon" aria-hidden="true">📍</div>
+      <h2 data-i18n="findFood">Find Food Near Me</h2>
+      <p data-i18n="findPlaceholder">Map &amp; nearby restaurants coming in STEP 3.</p>
+    </div>
+  </section>
+
+</main>
+
+<nav class="tabbar" aria-label="Main navigation">
+  <button class="tab-item is-active" data-nav="landing" type="button">
+    <span class="tab-icon" aria-hidden="true">🏠</span>
+    <span data-i18n="tabHome">Home</span>
+  </button>
+  <button class="tab-item" data-nav="scan" type="button">
+    <span class="tab-icon" aria-hidden="true">📷</span>
+    <span data-i18n="tabScan">Scan</span>
+  </button>
+  <button class="tab-item" data-nav="find" type="button">
+    <span class="tab-icon" aria-hidden="true">📍</span>
+    <span data-i18n="tabFind">Find</span>
+  </button>
+</nav>
+
+<script src="assets/js/app.js"></script>
+</body>
+</html>
