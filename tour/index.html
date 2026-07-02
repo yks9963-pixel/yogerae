@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>YOGERAE Tour</title>
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <button id="backBtn" class="topbar-back" aria-label="Back" hidden>&larr;</button>
+  <span class="topbar-title" data-i18n="appName">YOGERAE Tour</span>
+  <span id="langBadge" class="topbar-lang">EN</span>
+</header>
+
+<main id="app">
+
+  <!-- Landing view -->
+  <section id="view-landing" class="view" data-view="landing">
+    <div class="landing-hero">
+      <div class="logo" aria-hidden="true">🍜</div>
+      <h1 data-i18n="title">YOGERAE Tour</h1>
+      <p class="subtitle" data-i18n="subtitle">Menu translation &amp; food finder for travelers</p>
+    </div>
+
+    <div class="lang-picker" role="group" aria-label="Language">
+      <button class="lang-chip is-active" data-lang="en" type="button">EN</button>
+      <button class="lang-chip" data-lang="zh" type="button">中</button>
+      <button class="lang-chip" data-lang="ja" type="button">日</button>
+    </div>
+
+    <div class="entry-buttons">
+      <button id="btnScan" class="btn btn-filled" type="button" data-nav="scan">
+        <span class="btn-icon" aria-hidden="true">📷</span>
+        <span data-i18n="scanMenu">Scan Menu</span>
+      </button>
+      <button id="btnFind" class="btn btn-outline" type="button" data-nav="find">
+        <span class="btn-icon" aria-hidden="true">📍</span>
+        <span data-i18n="findFood">Find Food Near Me</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- Scan view (STEP 2) -->
+  <section id="view-scan" class="view" data-view="scan" hidden>
+    <div class="scan-panel">
+      <h2 data-i18n="scanMenu">Scan Menu</h2>
+      <p class="scan-hint" data-i18n="scanUploadHint">Take a photo or choose a photo of a Korean menu.</p>
+
+      <label class="scan-upload-btn btn btn-filled" for="scanFileInput">
+        <span class="btn-icon" aria-hidden="true">📷</span>
+        <span data-i18n="scanChooseImage">Choose Photo</span>
+      </label>
+      <input id="scanFileInput" type="file" accept="image/*" capture="environment" hidden>
+
+      <div id="scanPreviewWrap" class="scan-preview-wrap" hidden>
+        <img id="scanPreviewImg" class="scan-preview-img" alt="">
+      </div>
+
+      <div id="scanSpinner" class="scan-spinner" hidden>
+        <div class="spinner" aria-hidden="true"></div>
+        <p data-i18n="scanLoading">Reading your menu...</p>
+      </div>
+
+      <div id="scanError" class="scan-error" hidden>
+        <p id="scanErrorMessage"></p>
+        <button id="scanRetryBtn" class="btn btn-outline" type="button" data-i18n="retryButton">Try Again</button>
+      </div>
+
+      <div id="scanResults" class="scan-results"></div>
+    </div>
+  </section>
+
+  <!-- Find view (STEP 3) -->
+  <section id="view-find" class="view" data-view="find" hidden>
+    <div id="findMapWrap" class="find-map-wrap">
+      <div id="findMap" class="find-map"></div>
+      <p id="findMapUnavailable" class="find-map-unavailable" data-i18n="findMapUnavailable" hidden>
+        Map unavailable — missing API key.
+      </p>
+    </div>
+
+    <p id="findLocationNotice" class="find-location-notice" data-i18n="findLocationDenied" hidden>
+      Location access was denied — showing distances relative to central Jeonju.
+    </p>
+
+    <div id="findListSubview" class="find-subview">
+      <div class="filter-chips" role="group" aria-label="Filters">
+        <button class="filter-chip" data-filter="not_spicy" type="button" data-i18n="findFilterNotSpicy">Not spicy</button>
+        <button class="filter-chip" data-filter="vegetarian" type="button" data-i18n="findFilterVegetarian">Vegetarian</button>
+        <button class="filter-chip" data-filter="halal_friendly" type="button" data-i18n="findFilterHalal">Halal-friendly</button>
+      </div>
+
+      <div id="findRestaurantList" class="find-restaurant-list"></div>
+    </div>
+
+    <div id="findDetailSubview" class="find-subview" hidden>
+      <div id="findDetailHeader" class="find-detail-header"></div>
+      <div id="findDetailMenu" class="scan-results"></div>
+    </div>
+  </section>
+
+</main>
+
+<nav class="tabbar" aria-label="Main navigation">
+  <button class="tab-item is-active" data-nav="landing" type="button">
+    <span class="tab-icon" aria-hidden="true">🏠</span>
+    <span data-i18n="tabHome">Home</span>
+  </button>
+  <button class="tab-item" data-nav="scan" type="button">
+    <span class="tab-icon" aria-hidden="true">📷</span>
+    <span data-i18n="tabScan">Scan</span>
+  </button>
+  <button class="tab-item" data-nav="find" type="button">
+    <span class="tab-icon" aria-hidden="true">📍</span>
+    <span data-i18n="tabFind">Find</span>
+  </button>
+</nav>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/data/restaurants.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>
