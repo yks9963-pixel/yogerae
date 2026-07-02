@@ -8,7 +8,7 @@
 /tour
 ├── index.html          # 진입점 (랜딩 / scan / find 뷰를 한 페이지에서 라우팅)
 ├── README.md
-├── .env.example         # GEMINI_API_KEY / GEMINI_MODEL
+├── .env.example         # GEMINI_API_KEY / GEMINI_MODEL / ALLOWED_ORIGINS / KV_REST_API_*
 ├── .gitignore           # .env, .vercel 등 제외
 ├── vercel.json          # api/scan.js 함수 설정(maxDuration)
 ├── api/
@@ -63,6 +63,9 @@ cp assets/js/config.example.js assets/js/config.js
 |---|---|---|---|
 | `GEMINI_API_KEY` | `.env` (서버 전용) | 예 | 메뉴 사진을 읽고 번역하는 Gemini 멀티모달 호출용. `/tour/api/scan.js`에서만 서버사이드로 읽음 |
 | `GEMINI_MODEL` | `.env` (서버 전용) | 아니오 | 기본값 `gemini-2.5-flash`. 이미지 입력을 지원하는 멀티모달 모델이어야 함 |
+| `ALLOWED_ORIGINS` | `.env` (서버 전용) | 아니오(권장) | `/api/scan`을 호출할 수 있는 브라우저 Origin 콤마 목록. 미설정 시 localhost 외 모든 Origin이 차단됨 |
+| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | `.env` (서버 전용) | 아니오 | `/api/scan` 요청 빈도 제한(분당 5회/IP)용 Vercel KV REST 자격증명. Vercel 대시보드에서 KV 연동 시 자동 주입. 없으면 rate limit은 건너뛰고(fail-open) 스캔 자체는 정상 동작 |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | `.env` (서버 전용) | 아니오 | 위와 동일한 용도. "Upstash for Redis" 마켓플레이스로 연동했을 때 이 이름으로 뜨는 경우 사용 (`KV_REST_API_*`와 동시에 있으면 `KV_REST_API_*`가 우선) |
 | `GOOGLE_MAPS_API_KEY` | `assets/js/config.js` (**프론트 전용**) | Find 지도 사용 시 | Maps JavaScript API 키. 브라우저 요청에 노출되는 것이 정상이며, 위 서버 전용 키와는 성격이 다름 |
 
 > ⚠️ `GOOGLE_MAPS_API_KEY`(프론트, `config.js`)와 `GEMINI_API_KEY`(서버, `.env`)는 **서로 다른 키·서로 다른 발급처**입니다. 지도 키는 Google Cloud 콘솔, Gemini 키는 Google AI Studio에서 발급하며 절대 같은 값을 재사용하지 마세요 — 프론트 키는 도메인 제한을 걸어도 요청 URL에 그대로 노출되고, 서버 키는 절대 노출되면 안 됩니다.
@@ -72,6 +75,22 @@ cp assets/js/config.example.js assets/js/config.js
 1. [Google AI Studio](https://aistudio.google.com/apikey)에서 API 키 발급
 2. 발급받은 키를 로컬 `.env`의 `GEMINI_API_KEY`에, 배포 환경은 Vercel 프로젝트의 환경변수 설정에 등록
 3. 무료 티어 기준 `gemini-2.5-flash`(멀티모달) 사용을 기본값으로 함 — 다른 모델로 바꾸려면 `GEMINI_MODEL`을 override
+
+### `/api/scan` 남용 방어 설정 (Origin 체크 + Rate limit)
+
+**Origin 체크**는 env 하나만 설정하면 됩니다: `ALLOWED_ORIGINS`에 배포 도메인을 콤마로 나열하세요(예: `https://tour-liart-alpha.vercel.app,https://your-custom-domain.com`). `http(s)://localhost:*`, `http(s)://127.0.0.1:*`는 이 목록과 무관하게 항상 허용됩니다. Vercel의 브랜치/PR preview URL(`tour-xxxx-username.vercel.app`)은 매번 랜덤이라 이 목록에 자동으로 포함되지 않으니, preview에서 스캔을 테스트하려면 그때그때 해당 URL을 목록에 추가하거나 로컬(`vercel dev`)에서 테스트하세요.
+
+**Rate limit(분당 IP당 5회, `api/scan.js`의 `RATE_LIMIT_MAX` 상수로 조정 가능)**은 Vercel KV(Upstash Redis)의 REST API를 SDK 없이 `fetch`로 직접 호출합니다. 설정 안 해도 앱은 정상 동작(rate limit만 건너뜀)하지만, 배포 전에 연동을 권장합니다:
+
+1. https://vercel.com/dashboard → 이 프로젝트 선택
+2. 상단 **Storage** 탭 → **Create Database** → **KV**(또는 "Upstash for Redis") 선택
+3. 리전 선택 후 생성
+4. 생성 직후 "Connect to Project"에서 이 `tour` 프로젝트에 연결 (자동으로 안 뜨면 DB 상세 페이지 → Projects 탭 → Connect)
+5. Project → **Settings → Environment Variables**에서 `KV_REST_API_URL`/`KV_REST_API_TOKEN`(또는 `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`)이 자동으로 추가됐는지 확인
+6. 로컬 테스트하려면 `vercel env pull .env`로 받아오거나, 대시보드에서 값을 복사해 `.env`에 직접 추가
+7. 다음 배포(또는 수동 Redeploy)부터 새 env가 함수에 반영됨
+
+KV 없이도, KV 호출이 실패/타임아웃돼도 스캔 자체는 항상 정상 동작합니다(fail-open) — rate limit은 어디까지나 비용 방어용 보조 장치입니다.
 
 ### 구글맵 키 발급 및 도메인 제한 (필수)
 
@@ -94,20 +113,23 @@ cp assets/js/config.example.js assets/js/config.js
 
 ```
 POST /api/scan { image: base64, targetLang }
+  → 메서드 체크 (POST 아니면 405)
+  → Origin/Referer 체크 (허용 목록에 없으면 403 FORBIDDEN_ORIGIN — 바디도 안 읽고 즉시 차단)
   → 입력 검증 (base64 형식·크기·JPEG/PNG/WebP 매직바이트)
+  → Rate limit 체크 (IP당 분당 5회 초과 시 429 RATE_LIMITED — KV 없으면 건너뜀)
   → 이미지 + targetLang을 Gemini(Korean Menu Translator v1 시스템 프롬프트, responseSchema로 JSON 구조 강제)에 1회 전달
     — 이미지에서 직접 메뉴를 읽고, 번역하고, 구조화까지 한 번에 처리 (별도 OCR 단계 없음)
   → 응답을 JSON 배열로 파싱, 빈 배열이면 "메뉴를 못 찾음"으로 처리
   → { items: [...] } 반환 (필드 스키마는 이전 Vision+Claude 2단계 버전과 100% 동일)
 ```
 
-에러는 `{ error: { code, message } }` 형태로 반환되며, 코드는 `INVALID_IMAGE` / `NO_TEXT_DETECTED` / `GEMINI_API_ERROR` / `GEMINI_PARSE_ERROR` / `TIMEOUT` / `SERVER_MISCONFIGURED` 중 하나입니다. Gemini 호출 1회에 타임아웃을 두어 Vercel Hobby 플랜의 함수 실행 제한(~10초) 안에서 실패를 명확히 반환합니다.
+에러는 `{ error: { code, message } }` 형태로 반환되며, 코드는 `INVALID_IMAGE` / `NO_TEXT_DETECTED` / `GEMINI_API_ERROR` / `GEMINI_PARSE_ERROR` / `TIMEOUT` / `SERVER_MISCONFIGURED` / `FORBIDDEN_ORIGIN` / `RATE_LIMITED` 중 하나입니다. Gemini 호출 1회에 타임아웃을 두어 Vercel Hobby 플랜의 함수 실행 제한(~10초) 안에서 실패를 명확히 반환합니다.
 
 > ⚠️ **배포 전 필수 확인:** 실제 Gemini 응답 시간을 재기 위해 현재 `api/scan.js`의 `GEMINI_TIMEOUT_MS`가 `25000`(25초), `vercel.json`의 `functions["api/scan.js"].maxDuration`이 `30`(초)으로 **임시 상향**되어 있습니다. Hobby 플랜은 함수 실행이 10초를 넘으면 강제 종료되므로, 실제 응답 시간 측정이 끝나면 두 값을 함수 실행 제한(~10초) 안에 맞게 다시 낮춰야 합니다(예: Gemini 타임아웃 8~9초 + `maxDuration` 10초).
 
 **이전 버전과의 차이:** 원래는 Google Vision(OCR) → Claude(번역) 2단계·키 2개 구조였으나, Gemini의 멀티모달 입력으로 이미지를 직접 읽게 하여 1단계·키 1개(`GEMINI_API_KEY`)로 단순화했습니다. 프론트 업로드/리사이즈/카드 렌더링과 응답 JSON 스키마는 전혀 바뀌지 않았습니다.
 
-**여전히 일부러 미룬 것:** 요청 빈도 제한(rate limit), Origin 검증 등 공개 배포 단계의 남용 방어는 이번 범위에 포함하지 않았습니다 (서버리스 특성상 영구 저장소 없이는 견고하게 구현하기 어려워 실제 배포 준비 단계로 이연). 지금은 이미지 타입/크기 기본 검증만 있습니다.
+**남용 방어:** Origin 체크와 Vercel KV 기반 rate limit(IP당 분당 5회)이 적용돼 있습니다. 자세한 설정은 위 "`/api/scan` 남용 방어 설정" 참고.
 
 ## Find 데이터 구조 (`assets/js/data/restaurants.js`)
 
@@ -139,3 +161,4 @@ window.TOUR_RESTAURANTS = [
 - 프론트는 `/api/scan`만 호출하며 Gemini API를 직접 호출하지 않습니다.
 - `.env`는 `.gitignore`에 포함되어 있으며, 커밋되는 것은 `.env.example` 뿐입니다.
 - `GOOGLE_MAPS_API_KEY`(`assets/js/config.js`)는 브라우저에 노출되는 것이 정상인 프론트 전용 키입니다 — 위 두 서버 키와 절대 혼용하지 말고, Google Cloud 콘솔에서 **HTTP referrer(도메인) 제한**을 반드시 설정하세요(발급 방법은 위 "구글맵 키 발급 및 도메인 제한" 참고). `config.js`도 `.gitignore`에 포함되어 있으며, 커밋되는 것은 `config.example.js` 뿐입니다.
+- `/api/scan`은 `ALLOWED_ORIGINS`에 없는 Origin의 요청을 403으로 차단하고, IP당 분당 5회를 넘는 요청을 429로 차단합니다(Vercel KV 미연동 시 rate limit만 fail-open으로 건너뜀 — Origin 체크는 KV와 무관하게 항상 동작). `KV_REST_API_TOKEN`/`UPSTASH_REDIS_REST_TOKEN`도 서버 전용이며 프론트에 노출되지 않습니다.

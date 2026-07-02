@@ -31,7 +31,9 @@
       findFilterHalal: "Halal-friendly",
       findLocationDenied: "Location access was denied — showing distances relative to central Jeonju.",
       findMapUnavailable: "Map unavailable — missing API key.",
-      findNoResults: "No restaurants match these filters."
+      findNoResults: "No restaurants match these filters.",
+      scanErrorForbiddenOrigin: "This app can only be used from its own site. Please reload the page.",
+      scanErrorRateLimited: "Too many scans — please wait a minute and try again."
     },
     zh: {
       langBadge: "中",
@@ -59,7 +61,9 @@
       findFilterHalal: "清真友好",
       findLocationDenied: "位置访问被拒绝——将以全州市中心为基准显示距离。",
       findMapUnavailable: "地图不可用（缺少API密钥）。",
-      findNoResults: "没有符合筛选条件的餐厅。"
+      findNoResults: "没有符合筛选条件的餐厅。",
+      scanErrorForbiddenOrigin: "此应用只能在官方网站上使用，请重新加载页面。",
+      scanErrorRateLimited: "扫描次数过多，请稍等一分钟后再试。"
     },
     ja: {
       langBadge: "日",
@@ -87,7 +91,9 @@
       findFilterHalal: "ハラール対応",
       findLocationDenied: "位置情報へのアクセスが拒否されました——全州市中心を基準に距離を表示します。",
       findMapUnavailable: "地図を利用できません（APIキーが未設定です）。",
-      findNoResults: "この条件に一致するお店はありません。"
+      findNoResults: "この条件に一致するお店はありません。",
+      scanErrorForbiddenOrigin: "このアプリは公式サイトからのみご利用いただけます。ページを再読み込みしてください。",
+      scanErrorRateLimited: "スキャン回数が多すぎます。1分ほど待ってからもう一度お試しください。"
     }
   };
 
@@ -196,7 +202,9 @@
     GEMINI_API_ERROR: "scanErrorApiFailure",
     GEMINI_PARSE_ERROR: "scanErrorApiFailure",
     SERVER_MISCONFIGURED: "scanErrorApiFailure",
-    TIMEOUT: "scanErrorTimeout"
+    TIMEOUT: "scanErrorTimeout",
+    FORBIDDEN_ORIGIN: "scanErrorForbiddenOrigin",
+    RATE_LIMITED: "scanErrorRateLimited"
   };
 
   function handleFileSelect(event) {

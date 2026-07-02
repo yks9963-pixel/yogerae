@@ -9,6 +9,11 @@ const MAX_BASE64_LENGTH = 4500000; // keeps the JSON body under Vercel's ~4.5MB 
 const GEMINI_TIMEOUT_MS = 25000; // temporarily raised for local timing tests — see README before deploying
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 
+const LOCALHOST_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+const RATE_LIMIT_MAX = 5; // requests per IP per window
+const RATE_LIMIT_WINDOW_SECONDS = 60;
+const KV_TIMEOUT_MS = 1500;
+
 const TARGET_LANGUAGES = {
   en: "English",
   zh: "Chinese",
@@ -60,6 +65,12 @@ module.exports = async function handler(req, res) {
     return sendError(res, 405, "METHOD_NOT_ALLOWED", "Only POST is supported.");
   }
 
+  const requestOrigin = getRequestOrigin(req);
+  if (!isOriginAllowed(requestOrigin)) {
+    console.warn(`[scan] blocked request from disallowed origin: ${requestOrigin || "(none)"}`);
+    return sendError(res, 403, "FORBIDDEN_ORIGIN", "This origin is not allowed to use this API.");
+  }
+
   let body = req.body;
   if (typeof body === "string") {
     try {
@@ -87,6 +98,13 @@ module.exports = async function handler(req, res) {
   const imageType = detectImageType(base64Data);
   if (!imageType) {
     return sendError(res, 400, "INVALID_IMAGE", "Only JPEG, PNG, or WebP images are supported.");
+  }
+
+  const clientIp = getClientIp(req);
+  const rateLimitResult = await checkRateLimit(clientIp);
+  if (rateLimitResult.limited) {
+    console.warn(`[scan] rate limit exceeded for ip=${clientIp}`);
+    return sendError(res, 429, "RATE_LIMITED", "Too many requests. Please try again in a minute.");
   }
 
   const targetLanguageName = TARGET_LANGUAGES[targetLang] || TARGET_LANGUAGES.en;
@@ -132,6 +150,114 @@ function stripDataUrlPrefix(image) {
 
 function isLikelyBase64(str) {
   return /^[A-Za-z0-9+/]+={0,2}$/.test(str) && str.length % 4 === 0;
+}
+
+function getRequestOrigin(req) {
+  const originHeader = req.headers.origin;
+  if (originHeader) return originHeader;
+
+  const referer = req.headers.referer || req.headers.referrer;
+  if (referer) {
+    try {
+      return new URL(referer).origin;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function isOriginAllowed(origin) {
+  if (!origin) return false;
+  if (LOCALHOST_ORIGIN_RE.test(origin)) return true;
+
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  return allowedOrigins.indexOf(origin) !== -1;
+}
+
+function getClientIp(req) {
+  const forwardedFor = req.headers["x-forwarded-for"];
+  if (forwardedFor) {
+    return String(forwardedFor).split(",")[0].trim();
+  }
+  if (req.headers["x-real-ip"]) {
+    return String(req.headers["x-real-ip"]);
+  }
+  return "unknown";
+}
+
+// Vercel KV (Upstash Redis) REST API, called with plain fetch — no SDK
+// dependency needed. Supports both the native "Vercel KV" env var names and
+// the "Upstash for Redis" marketplace integration's names, since either may
+// show up depending on how the storage was provisioned. If neither is
+// configured, or any KV call fails/times out, rate limiting fails OPEN
+// (the request is allowed through) so a KV outage never breaks scanning.
+function getKvConfig() {
+  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+  return { url, token };
+}
+
+async function checkRateLimit(ip) {
+  const kv = getKvConfig();
+  if (!kv) {
+    console.warn("[scan] rate limiting skipped: no KV configured (fail-open)");
+    return { limited: false };
+  }
+
+  try {
+    const windowBucket = Math.floor(Date.now() / (RATE_LIMIT_WINDOW_SECONDS * 1000));
+    const key = `ratelimit:scan:${ip}:${windowBucket}`;
+
+    const count = await withTimeout(kvIncr(kv, key), KV_TIMEOUT_MS, "KV_TIMEOUT");
+
+    if (count === 1) {
+      // First hit for this IP in this window — set a TTL so the key doesn't
+      // linger forever. Awaited (not fire-and-forget): once this function
+      // returns its HTTP response, Vercel may freeze/kill any still-pending
+      // async work, so an un-awaited EXPIRE could simply never happen.
+      try {
+        await withTimeout(kvExpire(kv, key, RATE_LIMIT_WINDOW_SECONDS + 30), KV_TIMEOUT_MS, "KV_TIMEOUT");
+      } catch (expireErr) {
+        console.warn(`[scan] rate limit EXPIRE failed for ${key}: ${expireErr.message}`);
+      }
+    }
+
+    return { limited: count > RATE_LIMIT_MAX };
+  } catch (err) {
+    console.warn(`[scan] rate limit check failed, allowing request (fail-open): ${err.message}`);
+    return { limited: false };
+  }
+}
+
+async function kvIncr(kv, key) {
+  const response = await fetch(`${kv.url}/incr/${encodeURIComponent(key)}`, {
+    headers: { Authorization: `Bearer ${kv.token}` }
+  });
+  if (!response.ok) {
+    throw new Error(`KV INCR failed with status ${response.status}`);
+  }
+  const data = await response.json();
+  const count = typeof data.result === "number" ? data.result : Number(data.result);
+  if (!Number.isFinite(count)) {
+    throw new Error("KV INCR returned a non-numeric result");
+  }
+  return count;
+}
+
+async function kvExpire(kv, key, seconds) {
+  const response = await fetch(`${kv.url}/expire/${encodeURIComponent(key)}/${seconds}`, {
+    headers: { Authorization: `Bearer ${kv.token}` }
+  });
+  if (!response.ok) {
+    throw new Error(`KV EXPIRE failed with status ${response.status}`);
+  }
 }
 
 function detectImageType(base64) {
